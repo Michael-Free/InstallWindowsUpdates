@@ -1,93 +1,71 @@
+<#
+.NAME: 
+InstallWindowsUpdates.ps1
+.DESCRIPTION:
+Install all Windows Updates that are available without a reboot.
+.SYNOPSYS:
+Install All Windows Updates available without rebooting.
+.EXAMPLE:
+PS> set-executionpolicy bypass -force; .\InstallWindowsUpdates.ps1
+.AUTHOR: 
+Michael Free
+#>
 
-function check_admin {
-  $checkadmin = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-  $checkadmin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+### Check admin
+$checkadmin = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if ($checkadmin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -eq $false) {
+  Write-Warning "Not Administrator"
+  Exit 1
 }
-function get_nuget {
-  $CheckNuget = Get-PackageProvider | where-object {$_.Name -eq "NuGet"}
-  if ($null -ne $CheckNuget) {
-    return $true
-  } else {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    if ($?) {
-      Install-PackageProvider NuGet -Force
-      if ($?) {
-        Import-PackageProvider NuGet -Force
-        if ($?) {
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          if ($?) {
-            return $true
-          } else {
-            Write-Warning "Failed to set PSGallery as a trusted installation repository for NuGet..."
-            return $false
-          }
-        } else {
-          write-warning "Failed to import NuGet package provider..."
-          return $false
-        }
-      } else {
-        Write-Warning "NuGet failed to install..."
-        return $false
-      }
-    } else {
-      Write-Warning "Failed to install TLS 1.2 to install NuGet"
-      return $false
-    }
-  }
-}
-function get_pswinupdate {
-  if (get-module -ListAvailable -Name PSWindowsUpdate) {
-    return $true
-  } else {
-    Write-Warning "PSWindowsUpdate module is not installed..."
-    if (get_nuget -eq $true) {
-      Install-Module PSWindowsUpdate
-      if ($?) {
-        Get-Command -Module PSWindowsUpdate
-        if ($?) {
-          return $true
-        } else {
-         Write-Warning "Failed to import PSWindowsUpdate module..."
-         return $false
-        }
-      } else {
-        Write-Warning "Failed to install PSWindowsUpdate module..."
-        return $false
-      }
-    } else {
-      return $false
-    }
-  }
-}
-function update_windows {
-  Add-WUServiceManager -ServiceID 7971f918-a847-4430-9279-4a52d1efe18d -Confirm:$false
+
+### Check NuGet
+$CheckNuget = Get-PackageProvider | where-object {$_.Name -eq "NuGet"}
+if ($null -eq $CheckNuget) {
+  Write-Warning "NuGet Not Installed"
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  Install-PackageProvider NuGet -Force
   if ($?) {
-      Install-WindowsUpdate -microsoftupdate -acceptall -ignorereboot
-      if ($?) {
-        return $true
-      } else {
-        Write-Warning "Failed to download and install all Windows Updates..."
-        return $false
-      }
-  } else {
-    Write-Warning "Failed to opt-in for automatic windows update confirmations..."
-    return $false
-  }
-}
-if (check_admin -eq $true) {
-  Write-Host "Administrative Rights have been verified..."
-  if (get_pswinupdate -eq $true) {
-    Write-Host "PSWindowsUpdate module was successful. Installing updates..."
-    if (update_windows -eq $true) {
-      Write-Host "Windows Updates have completed successfully. Please reboot the computer when ready..."
-      exit 0
+    Import-PackageProvider NuGet -Force
+    if ($?) {
+      Write-Host "Imported NuGet Package Provider Successfully"
     } else {
-      exit 1
+      Write-Warning "Failed to Import NuGet Package Provider"
+      Exit 1
     }
   } else {
-    exit 1
+    Write-Warning "Failed to Install NuGet as Package Provider"
+    Exit 1
   }
-} else {
-  Write-Warning "InstallWindowsUpdates.ps1 must be ran with Administrative Rights..."
-  exit 1
+}
+
+### Check PS Update
+$CheckPSUpdates = get-module -ListAvailable -Name PSWindowsUpdate | where-object {$_.Name -eq "PSWindowsUpdate"}
+if ($CheckPSUpdates -eq $null) {
+  Write-Warning "PSWindowsUpdate module is not installed..."
+  ## need a force accept here
+  Install-Module PSWindowsUpdate -force -Confirm:$false
+  if ($?) {
+    Get-Command -Module PSWindowsUpdate
+    if ($?) {
+      write-host "Succesfully fetched PSWindowsUpdate module..."
+    } else {
+      Write-Warning "Failed to fetch PsWindowsUpdate module..."
+    }
+  } else {
+    Write-Warning "Failed to install PSWindowsUpdate Module..."
+    Exit 1
+  }
+}
+
+### if statement here to check update manager
+Add-WUServiceManager -ServiceID 7971f918-a847-4430-9279-4a52d1efe18d -Confirm:$false
+if ($?) {
+  Install-WindowsUpdate -microsoftupdate -acceptall -ignorereboot
+  if ($?) {
+    write-host "Successfully installed Windows Updates"
+    Exit 0
+  } else {
+    Write-Warning "Failed to install all windows updates"
+    Exit 1
+  }
 }
